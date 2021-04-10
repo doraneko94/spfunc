@@ -8,7 +8,7 @@ description = "Rust crate for numerical calculation of special functions."
 documentation = "https://docs.rs/spfunc/"
 repository = "https://github.com/doraneko94/spfunc"
 keywords = ["mathematics", "numerical", "science"]
-lisence = "MIT"
+licence = "MIT"
 readme = "README.md"
 categories = ["mathematics", "science"]
 
