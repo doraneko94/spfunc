@@ -1,0 +1,23 @@
+[package]
+name = "spfunc"
+version = "0.1.0"
+authors = ["doraneko94 <shuntaro94@gmail.com>"]
+edition = "2018"
+
+description = "Rust crate for numerical calculation of special functions."
+documentation = "https://docs.rs/spfunc/"
+repository = "https://github.com/doraneko94/spfunc"
+keywords = ["mathematics", "numerical", "science"]
+lisence = "MIT"
+readme = "README.md"
+categories = ["mathematics", "science"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+doctest = false
+
+[dependencies]
+num-complex = "0.4.0"
+num-traits = "0.2.14"
+cauchy = "0.4.0"
