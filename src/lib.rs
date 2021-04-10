@@ -1,5 +1,8 @@
 //! # spfunc
 //! Rust crate for numerical calculation of special functions.
+//! 
+//! [![Crate](http://meritbadge.herokuapp.com/spfunc)](https://crates.io/crates/spfunc)
+//! [![docs.rs](https://docs.rs/spfunc/badge.svg)](https://docs.rs/spfunc)
 //!
 //! This crate can calculate each special function for f32, f64, Complex32, Complex64 (from num_complex crate).
 //! 
