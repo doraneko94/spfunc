@@ -2,7 +2,7 @@
 name = "spfunc"
 version = "0.1.0"
 authors = ["doraneko94 <shuntaro94@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 description = "Rust crate for numerical calculation of special functions."
 documentation = "https://docs.rs/spfunc/"
@@ -18,10 +18,12 @@ categories = ["mathematics", "science"]
 doctest = false
 
 [dependencies]
-num-complex = "0.4.0"
-num-traits = "0.2.14"
+num-complex = "0.4.6"
+num-traits = "0.2.19"
 cauchy = "0.4.0"
+plotters = "0.3.7"
 
 [dev-dependencies]
-rand = "0.8.3"
-rand_distr = "0.4.0"
+criterion = "0.6.0"
+rand = "0.9.1"
+rand_distr = "0.5.1"
