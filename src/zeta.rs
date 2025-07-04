@@ -1,5 +1,8 @@
 //! Riemann and Hurwitz zeta function.
+use num_complex::Complex as NumComplex;
+use num_traits::Float;
 use num_traits::ToPrimitive;
+use std::f64::consts::PI;
 
 use crate::complex::FromComplex;
 use crate::consts::*;
@@ -25,21 +28,54 @@ pub fn zeta<T: FromComplex>(s: T) -> T {
     }
 
     let two = one + one;
+    let mut two_pow = one / two;
+
+    if (s.re() - two_pow.re()).to_f64().unwrap() < EPSILON && s.im().to_f64().unwrap() > 0.0 {
+        let c: NumComplex<T::Real> = zeta_riemann_siegel(s.im());
+        return T::from_complex(T::complex(c.re, c.im));
+    }
+
+    let pow = pow_os(two, s);
+    let denom = one - pow;
+
+    let denom_abs = denom.abs().to_f64().unwrap_or(f64::INFINITY);
+    if denom_abs < 1e-12 {
+        return T::from_f64(f64::NAN).unwrap();
+    }
 
     let mut akn = vec![one];
-    let mut two_pow = one / two;
-    let head = one / (one - pow_os(two, s));
+    let head = one / denom;
+
     let mut tail_prev = T::zero();
     let mut tail = two_pow * akn[0];
 
-    while (tail - tail_prev).abs().to_f64().unwrap() >= EPSILON {
+    let mut iter = 0;
+    const MAX_ITER: usize = 500;
+
+    while (tail - tail_prev).abs().to_f64().unwrap_or(f64::INFINITY) >= EPSILON {
+        if iter >= MAX_ITER {
+            break;
+        }
+
         update_akn(&mut akn, s);
-        two_pow /= two;
+        two_pow = two_pow / two;
         tail_prev = tail;
-        tail += two_pow * akn.iter().map(|&e| e).sum();
+
+        let term_sum: T = akn.iter().copied().sum();
+        if term_sum.re().to_f64().unwrap().is_nan() || term_sum.re().to_f64().unwrap().is_infinite() {
+            break;
+        }
+
+        tail += two_pow * term_sum;
+        iter += 1;
     }
 
-    head * tail
+    let result = head * tail;
+    if result.re().to_f64().unwrap_or(f64::INFINITY).is_nan() || result.re().to_f64().unwrap_or(0.0).is_infinite() {
+        T::from_f64(INFINITY).unwrap()
+    } else {
+        result
+    }
 }
 
 fn update_akn<T: FromComplex>(akn: &mut Vec<T>, s: T) {
@@ -57,11 +93,48 @@ fn update_akn<T: FromComplex>(akn: &mut Vec<T>, s: T) {
                 }).collect::<()>();
     let p1 = -T::one() / n1;
     let p2 = if s.im().to_f64().unwrap() < EPSILON {
-        (n1 / (n1 + one)).powf(s.re())
+        let p = n1 / (n1 + one);
+        if p.to_f64().unwrap() <= 0.0 {
+            return;
+        } else {
+            p.powf(s.re())
+        }
     } else {
         T::from_complex((n1 / (n1 + one)).powc(T::complex(s.re(), s.im())))
     };
     akn.push(p1 * p2 * akn[n]);
+}
+
+/// Riemann–Siegel theta function
+fn theta<T: Float>(t: T) -> T {
+    let one = T::one();
+    let two = one + one;
+    let eight = two + two + two + two;
+    let pi = T::from(PI).unwrap();
+    t / two * (t / (two * pi)).ln() - t / two - pi / eight
+}
+
+/// Riemann–Siegel Z(t) approximation
+pub fn zeta_riemann_siegel<T: Float>(t: T) -> NumComplex<T> {
+    if t <= T::zero() {
+        panic!("Riemann–Siegel approximation is only valid for t > 0");
+    }
+    let one = T::one();
+    let two = one + one;
+    let pi = T::from(PI).unwrap();
+
+    let n_max = (t / (two * pi)).sqrt().floor().to_usize().unwrap();
+    let theta_t = theta(t);
+    let mut z = T::zero();
+
+    for n in 1..=n_max {
+        let n_f = T::from(n).unwrap();
+        z = z + (theta_t - t * n_f.ln()).cos() / n_f.sqrt();
+    }
+
+    // Z(t) is real, so return ζ(0.5 + it) = Z(t) * e^{-iθ(t)}
+    let phase = NumComplex::from_polar(one, -theta_t);
+    NumComplex::new(z, T::zero()) * phase
 }
 
 /// Calculate the Hurwitz zeta function, which is defined as
@@ -93,31 +166,41 @@ pub fn zetah_raw<T: FromComplex>(s: T, q: T) -> T {
     let mut qkos = vec![pow_os(q, s)];
     let mut fact: Vec<T> = vec![one];
     let mut bk_inv = one;
+
     let head = one / (s - one);
+
     let mut tail_prev = T::zero();
     let mut tail = qkos[0] * fact[0] / bk_inv;
     let mut dt_prev = T::from_f64(INFINITY).unwrap();
+
+    let mut iter = 0;
+    const MAX_ITER: usize = 500;
     
     while (tail - tail_prev).abs().to_f64().unwrap() >= EPSILON {
-        let n1 = T::from_usize(qkos.len()).unwrap();
-        let _ = fact.iter_mut()
-                    .enumerate()
-                    .skip(1)
-                    .map(|(k, a)| {
-                        let n1k = n1 - T::from_usize(k).unwrap();
-                        *a = *a / n1k * n1;
-                    })
-                    .collect::<()>();
-        fact.push(one);
-        if qkos.len() % 2 == 0 {
-            qkos.push(pow_os(q + n1, s));
-        } else {
-            qkos.push(-pow_os(q + n1, s));
+        if iter >= MAX_ITER {
+            break;
         }
 
+        let n1 = T::from_usize(qkos.len()).unwrap();
+
+        for (k, a) in fact.iter_mut().enumerate().skip(1) {
+            let n1k = n1 - T::from_usize(k).unwrap();
+            *a = *a / n1k * n1;
+        }
+        fact.push(one);
+
+        let term = if qkos.len() % 2 == 0 {
+            pow_os(q + n1, s)
+        } else {
+            -pow_os(q + n1, s)
+        };
+        qkos.push(term);
         bk_inv += one;
         
         let dt = fact.iter().zip(qkos.iter()).map(|(&f, &q)| f * q).sum::<T>() / bk_inv;
+        if dt.to_f64().unwrap().is_nan() || dt.to_f64().unwrap().is_infinite() {
+            break;
+        }
         if dt_prev.abs() <= dt.abs() {
             break;
         }
@@ -125,9 +208,15 @@ pub fn zetah_raw<T: FromComplex>(s: T, q: T) -> T {
         tail_prev = tail;
         dt_prev = dt;
         tail += dt;
+        iter += 1;
     }
 
-    head * tail
+    let result = head * tail;
+    if result.re().to_f64().unwrap().is_nan() || result.re().to_f64().unwrap().is_infinite() {
+        T::from_f64(INFINITY).unwrap()
+    } else {
+        result
+    }
 }
 
 /// The Gregory's coefficients for calculating the Hurwitz zeta function.
@@ -214,34 +303,41 @@ pub fn zetah<T: FromComplex>(s: T, q: T) -> T {
 
     let mut qkms = vec![pow_ms(q, s)];
     let mut fact: Vec<T> = vec![one];
+
     let mut gn = G_N.iter().map(|&e| T::from_f64(e).unwrap()).collect::<Vec<T>>();
     let n_calc = gn.len();
+
     let head = pow_os(q, s) / (s - one);
     let mut tail_prev = T::zero();
-    let mut tail = qkms[0] * fact[0] * gn[0];
+    let mut tail = qkms[0] * fact[0] * T::from_real(gn[0].abs());
     let mut dt_prev = T::from_f64(INFINITY).unwrap();
     
     let mut n = 0;
+    const MAX_ITER: usize = 500;
+
     while (tail - tail_prev).abs().to_f64().unwrap() >= EPSILON {
+        if n >= MAX_ITER {
+            break;
+        }
+
         n += 1;
         let nt = T::from_usize(n).unwrap();
-        let _ = fact.iter_mut()
-                    .enumerate()
-                    .skip(1)
-                    .map(|(k, a)| {
-                        let n1k = nt - T::from_usize(k).unwrap();
-                        *a = *a / n1k * nt;
-                    })
-                    .collect::<()>();
+        for (k, a) in fact.iter_mut().enumerate().skip(1) {
+            let n1k = nt - T::from_usize(k).unwrap();
+            *a = *a / n1k * nt;
+        }
         fact.push(one);
+
         if n >= n_calc {
             update_gn(&mut gn);
         }
-        if qkms.len() % 2 == 0 {
-            qkms.push(pow_ms(q + nt, s));
+
+        let term = if qkms.len() % 2 == 0 {
+            pow_os(q + nt, s)
         } else {
-            qkms.push(-pow_ms(q + nt, s));
-        }
+            -pow_os(q + nt, s)
+        };
+        qkms.push(term);
         
         let dt = fact.iter().zip(qkms.iter()).map(|(&f, &q)| f * q).sum::<T>() * T::from_real(gn[n].abs());
         if dt_prev.abs() <= dt.abs() {
@@ -253,5 +349,10 @@ pub fn zetah<T: FromComplex>(s: T, q: T) -> T {
         tail += dt;
     }
 
-    head + tail
+    let result = head + tail;
+    if result.re().to_f64().unwrap().is_nan() || result.re().to_f64().unwrap().is_infinite() {
+        T::from_f64(INFINITY).unwrap()
+    } else {
+        result
+    }
 }
